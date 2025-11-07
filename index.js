@@ -4,6 +4,7 @@
 
 require("dotenv").config();
 const fs = require("fs");
+const path = require("path");
 const TelegramBot = require("node-telegram-bot-api");
 
 // ==================================================
@@ -21,20 +22,23 @@ const bot = new TelegramBot(token, { polling: true });
 let botUsername = null;
 
 // ==================================================
-// 💾 تحميل بيانات اللاعبين
+// 💾 تحميل بيانات اللاعبين (قابل للتخصيص عبر PLAYERS_PATH)
+const PLAYERS_PATH = process.env.PLAYERS_PATH || path.join(process.cwd(), "players.json");
 let players = {};
 function savePlayers() {
   try {
-    fs.writeFileSync("players.json", JSON.stringify(players, null, 2), "utf8");
+    const dir = path.dirname(PLAYERS_PATH);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(PLAYERS_PATH, JSON.stringify(players, null, 2), "utf8");
   } catch (err) {
     console.error("⚠️ خطأ أثناء حفظ البيانات:", err.message);
   }
 }
 try {
-  if (!fs.existsSync("players.json")) fs.writeFileSync("players.json", "{}", "utf8");
-  const data = fs.readFileSync("players.json", "utf8");
+  if (!fs.existsSync(PLAYERS_PATH)) fs.writeFileSync(PLAYERS_PATH, "{}", "utf8");
+  const data = fs.readFileSync(PLAYERS_PATH, "utf8");
   players = data && data.trim() ? JSON.parse(data) : {};
-} catch {
+} catch (err) {
   players = {};
   savePlayers();
 }
@@ -201,14 +205,19 @@ bot.onText(/\/challenge/, (msg) => {
 // ==================================================
 // 👥 /newgame (في القروبات فقط)
 bot.onText(/\/newgame/, (msg) => {
-  if (msg.chat.type === "private")
-    return bot.sendMessage(msg.chat.id, "🚫 استخدم هذا الأمر في القروب فقط.");
+  // لا تسمح بالأمر في الخاص
+  if (msg.chat.type === "private") {
+    return bot.sendMessage(msg.chat.id, "❗ هذا الأمر متاح في القروبات فقط.");
+  }
+
   const chatId = msg.chat.id;
   const user = msg.from;
   ensurePlayer(user);
 
-  if (games[chatId])
-    return bot.sendMessage(chatId, "⚠️ هناك لعبة قيد التشغيل حالياً.");
+  // إذا كانت هناك لعبة جارية في القروب
+  if (games[chatId]) {
+    return bot.sendMessage(chatId, "⚠️ هناك لعبة جارية بالفعل في هذه القروب.");
+  }
 
   games[chatId] = {
     type: "group",
@@ -232,14 +241,15 @@ bot.onText(/\/newgame/, (msg) => {
     .then((sent) => {
       games[chatId].messageId = sent.message_id;
       games[chatId].timer = setTimeout(() => {
+        // انقضاء وقت الانضمام: إذا لا لاعبين كافيين قم بإزالة اللعبة
         if (games[chatId] && games[chatId].players.length < 2) {
-          bot
-            .editMessageText("⏰ انتهى الوقت! لم ينضم أحد.", {
-              chat_id: chatId,
-              message_id: sent.message_id,
-            })
-            .catch(() => {});
+          bot.sendMessage(chatId, "⏰ لم ينضم لاعبين كافيين. تم إلغاء اللعبة.");
+          clearTimeout(games[chatId].timer);
           delete games[chatId];
+        } else {
+          // ابدأ اللعبة (مثال بسيط)
+          games[chatId].turn = "X";
+          bot.sendMessage(chatId, "✅ بدأت اللعبة!");
         }
       }, 15000);
     });
@@ -287,48 +297,52 @@ bot.on("callback_query", async (query) => {
   const gameId = Object.keys(games).find(
     (id) =>
       games[id].type === "private" &&
-      (games[id].p1.id === from.id || games[id].p2.id === from.id)
+      ((games[id].p1.id === from.id && games[id].turn === "X") ||
+        (games[id].p2.id === from.id && games[id].turn === "O"))
   );
-
   if (!gameId)
-    return bot.answerCallbackQuery(query.id, { text: "⚠️ لا توجد لعبة نشطة!" });
-  const game = games[gameId];
-  const [i, j] = data.split(",").map(Number);
-  if (game.board[i][j] !== " ")
-    return bot.answerCallbackQuery(query.id, { text: "❗ هذه الخانة مشغولة!" });
+    return bot.answerCallbackQuery(query.id, { text: "⚠️ لا توجد لعبة نشطة!" });;
+  const game = games[gameId];  const game = games[gameId];
+  const [i, j] = data.split(",").map(Number);(",").map(Number);
+  if (game.board[i][j] !== " ") ")
+    return bot.answerCallbackQuery(query.id, { text: "❗ هذه الخانة مشغولة!" });id, { text: "❗ هذه الخانة مشغولة!" });
 
   const symbol = game.turn;
-  game.board[i][j] = symbol;
-  game.turn = symbol === "X" ? "O" : "X";
+  game.board[i][j] = symbol; = symbol;
+  game.turn = symbol === "X" ? "O" : "X";=== "X" ? "O" : "X";
 
   const winnerSymbol = checkWinner(game.board);
   let result = "";
   if (winnerSymbol) {
-    result = `🏆 الفائز: ${winnerSymbol === "X" ? game.p1.name : game.p2.name}!`;
-    awardPointsPrivateGame(gameId, winnerSymbol);
+    result = `🏆 الفائز: ${winnerSymbol === "X" ? game.p1.name : game.p2.name}!`;== "X" ? game.p1.name : game.p2.name}!`;
+    awardPointsPrivateGame(gameId, winnerSymbol);Symbol);
     delete games[gameId];
-  } else if (game.board.flat().every((c) => c !== " ")) {
+  } else if (game.board.flat().every((c) => c !== " ")) {f (game.board.flat().every((c) => c !== " ")) {
     result = "🤝 انتهت اللعبة بالتعادل!";
-    awardPointsPrivateGame(gameId, null);
-    delete games[gameId];
-  } else {
-    result = `🎯 دور ${game.turn === "X" ? game.p1.name : game.p2.name}`;
+    awardPointsPrivateGame(gameId, null); awardPointsPrivateGame(gameId, null);
+    delete games[gameId];    delete games[gameId];
+  } else {e {
+    result = `🎯 دور ${game.turn === "X" ? game.p1.name : game.p2.name}`;ame}`;
   }
 
   try {
-    await bot.editMessageText(`🎮 ضد ${game.p2.name}\n${result}`, {
+    await bot.editMessageText(`🎮 ضد ${game.p2.name}\n${result}`, {it bot.editMessageText(`🎮 ضد ${game.p2.name}\n${result}`, {
       chat_id: game.p1.id,
-      message_id: game.msgs[game.p1.id],
+      message_id: game.msgs[game.p1.id],s[game.p1.id],
       ...renderBoard(game.board),
     });
-    await bot.editMessageText(`🎮 ضد ${game.p1.name}\n${result}`, {
-      chat_id: game.p2.id,
-      message_id: game.msgs[game.p2.id],
+    await bot.editMessageText(`🎮 ضد ${game.p1.name}\n${result}`, {it bot.editMessageText(`🎮 ضد ${game.p1.name}\n${result}`, {
+      chat_id: game.p2.id,ame.p2.id,
+      message_id: game.msgs[game.p2.id],      message_id: game.msgs[game.p2.id],
       ...renderBoard(game.board),
-    });
-  } catch (e) {}
+    }); });
+  } catch (e) {}  } catch (e) {}
 
-  bot.answerCallbackQuery(query.id);
+
+
+
+
+console.log("🚀 XO Bot v9.1 قيد التشغيل...");});  bot.answerCallbackQuery(query.id);  bot.answerCallbackQuery(query.id);
 });
 
 console.log("🚀 XO Bot v9.1 قيد التشغيل...");
